@@ -1,0 +1,8 @@
+# Windows 自动生成的文件
+Thumbs.db
+Desktop.ini
+
+# 临时文件与备份文件
+*.tmp
+*.bak
+*~

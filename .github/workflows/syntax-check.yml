@@ -1,0 +1,170 @@
+name: Syntax check
+
+on:
+  push:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  source-inventory:
+    name: Source inventory
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      has_sources: ${{ steps.inventory.outputs.has_sources }}
+      files: ${{ steps.inventory.outputs.files }}
+    steps:
+      - name: Check out source code
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Discover source files and report empty repositories
+        id: inventory
+        shell: bash
+        run: |
+          python3 -I - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+
+          # Dependencies/caches can be nested. Build outputs are excluded only
+          # at the repository root, so src/build and src/dist remain eligible.
+          dependency_dirs = {
+              "node_modules", "vendor", "third_party", "third-party",
+              "__pycache__", ".venv", "venv", ".cache",
+          }
+          root_outputs = {"dist", "build", "out", "coverage", ".next", ".nuxt"}
+          # Preserve the existing Python, plain JavaScript, and Bash checkers.
+          supported = {".py", ".pyw", ".js", ".mjs", ".cjs", ".sh", ".bash"}
+          needs_parser = {
+              ".ts", ".tsx", ".jsx", ".vue", ".svelte", ".c", ".h",
+              ".cc", ".cpp", ".cxx", ".hpp", ".cs", ".go", ".java",
+              ".rb", ".php", ".rs", ".swift", ".kt", ".kts", ".lua",
+              ".ps1", ".psm1", ".pl", ".r", ".scala",
+          }
+          # NUL separators also handle filenames containing spaces or newlines.
+          listing = subprocess.check_output([
+              "git", "ls-files", "-z", "--cached", "--others", "--exclude-standard",
+          ])
+          paths = sorted(set(p for p in listing.split(b"\0") if p))
+          excluded_by_attributes = set()
+          if paths:
+              attributes = subprocess.check_output(
+                  ["git", "check-attr", "-z", "--stdin", "linguist-generated", "linguist-vendored"],
+                  input=b"\0".join(paths) + b"\0",
+              ).split(b"\0")
+              for filename, value in zip(attributes[0::3], attributes[2::3]):
+                  if value in {b"set", b"true"}:
+                      excluded_by_attributes.add(filename)
+
+          files = []
+          for raw_path in paths:
+              path = Path(os.fsdecode(raw_path))
+              if raw_path in excluded_by_attributes:
+                  continue
+              if any(part.lower() in dependency_dirs for part in path.parts[:-1]):
+                  continue
+              if len(path.parts) > 1 and path.parts[0].lower() in root_outputs:
+                  continue
+              if path.is_symlink() or not path.is_file():
+                  continue
+              if path.name.lower().endswith((".min.js", ".generated.js", ".generated.py", ".g.py")):
+                  continue
+              if path.suffix.lower() in supported | needs_parser:
+                  files.append(path.as_posix())
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"has_sources={str(bool(files)).lower()}\n")
+              output.write("files=" + json.dumps(files, ensure_ascii=True) + "\n")
+          result = f"Found {len(files)} candidate source file(s)."
+          if not files:
+              result += " No project source files found; syntax checking is SKIPPED, not passed."
+              print("::notice::No project source files found. Syntax check job will be skipped.")
+          print(result)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as output:
+              output.write(result + "\n")
+          PY
+
+  syntax-check:
+    name: Syntax check
+    needs: source-inventory
+    if: ${{ needs.source-inventory.outputs.has_sources == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out source code
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Check syntax without executing project code
+        shell: bash
+        env:
+          NODE_OPTIONS: ""
+          # Pass filenames as JSON data, never interpolate them into shell code.
+          SOURCE_FILES: ${{ needs.source-inventory.outputs.files }}
+        run: |
+          python3 -I - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import shutil
+          import subprocess
+          import sys
+
+          # No package installation, imports of project code, tests, or style checks.
+          supported = {".py", ".pyw", ".js", ".mjs", ".cjs", ".sh", ".bash"}
+
+          def escape(value):
+              return str(value).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+          def report(path, message):
+              location = escape(path).replace(",", "%2C").replace(":", "%3A")
+              print(f"::error file={location}::{escape(message)}", flush=True)
+
+          files = json.loads(os.environ["SOURCE_FILES"])
+          if not files:
+              raise RuntimeError("No source files supplied; this job should have been skipped.")
+          checked = failed = 0
+          for filename in files:
+              path = Path(filename)
+              suffix = path.suffix.lower()
+              if suffix not in supported:
+                  failed += 1
+                  report(filename, f"No syntax-only checker configured for {suffix}; configure one before merging.")
+                  continue
+              checked += 1
+              print(f"Checking {filename!r}", flush=True)
+              try:
+                  if suffix in {".py", ".pyw"}:
+                      # Compile in memory: detects syntax errors, never runs code
+                      # and never writes __pycache__ files.
+                      compile(path.read_bytes(), filename, "exec", dont_inherit=True)
+                  else:
+                      command = (["node", "--check"] if suffix in {".js", ".mjs", ".cjs"}
+                                 else ["bash", "--noprofile", "--norc", "-n", "--"])
+                      if not shutil.which(command[0]):
+                          raise RuntimeError(f"Required checker not found: {command[0]}")
+                      environment = os.environ.copy()
+                      environment.pop("BASH_ENV", None)
+                      environment.pop("ENV", None)
+                      environment.pop("NODE_OPTIONS", None)
+                      subprocess.run(command + [str(path.resolve())], check=True,
+                                     env=environment, timeout=30)
+              except (SyntaxError, UnicodeError, OSError, RuntimeError, subprocess.SubprocessError) as error:
+                  failed += 1
+                  report(filename, error)
+
+          result = f"Checked {checked} source file(s); {failed} error(s)."
+          print(result, flush=True)
+          summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as output:
+                  output.write(result + "\n")
+          sys.exit(1 if failed else 0)
+          PY

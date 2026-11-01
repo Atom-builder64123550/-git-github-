@@ -1,0 +1,72 @@
+name: Bug 报告
+description: 报告可复现的问题，帮助维护者定位和修复。
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！请先搜索已有 Issues，再补充复现信息。
+        本仓库目前用于学习 Git 与 GitHub；文档、操作说明和贡献配置的问题也可以在这里反馈。
+        请勿上传密钥、令牌、私人数据或包含这些信息的日志和截图。
+  - type: input
+    id: module
+    attributes:
+      label: 所属模块或功能
+      description: 填写相关文件路径、文档章节或操作环节；不确定时可写“不确定”。
+      placeholder: 例如 README.md、贡献指南、Issue 表单或语法检查工作流
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug 的具体描述
+      description: 清楚说明遇到了什么问题，以及它造成的影响。
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 复现步骤
+      description: 提供其他人可以重复操作的步骤，必要时附最小复现内容。
+      placeholder: |
+        1. 打开……
+        2. 执行……
+        3. 观察到……
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期行为
+      description: 按照文档或你的理解，本来应该发生什么？
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际发生的行为
+      description: 实际发生了什么？请保留错误提示的原文。
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 运行环境
+      description: 填写与问题相关的信息即可；硬件信息仅在相关时提供。
+      placeholder: |
+        操作系统及版本：
+        Git 版本（git --version）：
+        编辑器、浏览器或相关软件版本：
+        仓库分支或 commit：
+        相关硬件（可选）：
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 错误日志、截图和其他补充信息
+      description: 可粘贴日志、拖入截图或提供相关链接；提交前请移除敏感内容。
+  - type: checkboxes
+    id: duplicate-check
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已搜索现有 Issues，未发现相同的问题；如有相关 Issue，已在补充信息中说明。
+          required: true
