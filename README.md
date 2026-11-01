@@ -43,6 +43,7 @@
 
 ## 仓库导航
 
+- [图片资源](images/)：存放学习记录和项目文档使用的图片与截图。
 - [贡献指南](.github/CONTRIBUTING.md)：获取代码、创建分支、提交 PR 与参与审核。
 - [Bug 报告表单](.github/ISSUE_TEMPLATE/bug_report.yml)：记录问题、复现步骤与预期行为。
 - [功能建议表单](.github/ISSUE_TEMPLATE/feature_request.yml)：讨论新的练习内容和改进方向。
